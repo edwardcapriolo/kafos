@@ -1,0 +1,11 @@
+<project>
+  <artifactId>kepsen</artifactId>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.abc</groupId>
+  <version>0.0.0-SNAPSHOT</version>
+  <parent>
+    <groupId>com.abc</groupId>
+    <artifactId>kafos-parent</artifactId>
+    <version>0.0.0-SNAPSHOT</version>
+  </parent>
+</project>

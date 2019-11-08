@@ -1,0 +1,32 @@
+<project>
+  <artifactId>pure8</artifactId>
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.abc</groupId>
+    <artifactId>kafos-parent</artifactId>
+    <version>0.0.0-SNAPSHOT</version>
+  </parent>
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <version>2.3.1</version>
+    </dependency>
+    <dependency>
+      <groupId>com.abc</groupId>
+      <artifactId>kepsen</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.abc</groupId>
+      <artifactId>elastic-tracker</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>5.1.6.RELEASE</version>
+    </dependency>
+
+  </dependencies>
+</project>
