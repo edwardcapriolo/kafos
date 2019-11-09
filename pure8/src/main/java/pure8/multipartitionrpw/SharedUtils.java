@@ -11,6 +11,16 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 public class SharedUtils {
+	
+	/*
+	 *
+	 * produce a transaction.id based completely on the group, topic, and partition.
+	 * You do not want anything random or host based in here because then fence will not work correctly.
+	 */
+	public static String makeFencingId(String topic, String group, int partitionId) {
+		return topic + "." + group + "." + partitionId;
+	}
+	
 	public static ProducerCreator<String,String> prod = new ProducerCreator<String,String>() {
 		public KafkaProducer<String,String> createKafkaProducer(String boot, String transId){
 			Map<String,Object> properties = new HashMap<>();

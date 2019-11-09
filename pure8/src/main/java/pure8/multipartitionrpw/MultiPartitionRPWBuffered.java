@@ -123,7 +123,8 @@ public class MultiPartitionRPWBuffered<K,V> implements  Runnable {
 			public void onPartitionsAssigned(Collection<TopicPartition> topics) {
 				for (TopicPartition topic: topics) {
 					if(!producers.containsKey(topic.partition())) {
-						String fenceId = inputTopic + "-" + topic.partition();
+						//String fenceId = inputTopic + "-" + topic.partition();
+						String fenceId = SharedUtils.makeFencingId(topic.topic(), groupId, topic.partition());
 						producers.put (topic.partition(), new BufferedTrackingProducer<K,V>(producerCreator.createKafkaProducer(bootstrap, fenceId),topic));
 					}
 				}

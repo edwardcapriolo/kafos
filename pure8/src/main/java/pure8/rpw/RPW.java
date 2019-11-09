@@ -68,7 +68,7 @@ public class RPW {
 		t.start();
 	}
 	
-, 	public void stop() {
+ 	public void stop() {
 		goOn.set(false);
 	}
 	
