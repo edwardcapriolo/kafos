@@ -19,94 +19,96 @@ import pure8.ToElasticConsuer;
 
 /**
  * 
- * @author edward
- * Using 1 zk and 1 kafka that should stay running through the life of the test 
+ * @author edward Using 1 zk and 1 kafka that should stay running through the
+ *         life of the test
  * 
- * We start multiple RPW and kill them in an attempt to create duplicate messages. 
+ *         We start multiple RPW and kill them in an attempt to create duplicate
+ *         messages.
  * 
  * 
- * The results should look like
+ *         The results should look like
  * 
- * Verification stats
- * ------------------------------------------------------------------
- * notFound: 0 foundCorrect: 4000 foundDuplications: 0
- * ------------------------------------------------------------------
- * not found list[]
+ *         Verification stats
+ *         ------------------------------------------------------------------
+ *         notFound: 0 foundCorrect: 4000 foundDuplications: 0
+ *         ------------------------------------------------------------------
+ *         not found list[]
  * 
  */
 public class MutliRPWWithConsumerRestartingTest {
 
 	public static void main(String[] args) throws InterruptedException, IOException {
-		
+
 		deleteDirectory(new File("/tmp/kafka-logs-singlenode"));
 		deleteDirectory(new File("/tmp/zookeeper-singlenode"));
-		
+
 		Injector inj = new Injector();
-		ZookeeperLauncher z = new ZookeeperLauncher(1, "/home/edward/Downloads/kafka_2.11-2.2.1",
-				"/home/edward/Documents/kafos/kepsen/singlenode/zookeeper.properties.",
-				(i, s1, s2) -> new ZookeeperProcess(i, s1, s2));
-
-		KafkaLauncher l = new KafkaLauncher(1, "/home/edward/Downloads/kafka_2.11-2.2.1",
-				"/home/edward/Documents/kafos/kepsen/singlenode/kafkaserver.properties.",
-				(i, s1, s2) -> new KafkaProcess(i, s1, s2));
-		
-		String boot = "localhost:9092";
-		String inputTopic = "topic0";
-		String outputTopic = "topic1";
-		
-		List<ExecProcessor> eps = new ArrayList<ExecProcessor>();
-		for (int i = 0; i< 4; i++) {
-			ExecProcessor ep= new ExecProcessor(i, "pure8.multipartitionrpw.MultiPartitionRPW", "groupa topic0 localhost:9092 topic1");
-			ep.start();
-			eps.add(ep);
+		try (
+			ZookeeperLauncher z = new ZookeeperLauncher(1, "/home/edward/Downloads/kafka_2.11-2.2.1",
+					"/home/edward/Documents/kafos/kepsen/singlenode/zookeeper.properties.",
+					(i, s1, s2) -> new ZookeeperProcess(i, s1, s2));
+	
+			KafkaLauncher l = new KafkaLauncher(1, "/home/edward/Downloads/kafka_2.11-2.2.1",
+					"/home/edward/Documents/kafos/kepsen/singlenode/kafkaserver.properties.",
+					(i, s1, s2) -> new KafkaProcess(i, s1, s2));
+					){
+	
+			String boot = "localhost:9092";
+			String inputTopic = "topic0";
+			String outputTopic = "topic1";
+	
+			List<ExecProcessor> eps = new ArrayList<ExecProcessor>();
+			for (int i = 0; i < 4; i++) {
+				ExecProcessor ep = new ExecProcessor(i, "pure8.multipartitionrpw.MultiPartitionRPW",
+						"groupa topic0 localhost:9092 topic1");
+				ep.start();
+				eps.add(ep);
+			}
+	
+			ToElasticConsuer toElastic = new ToElasticConsuer(boot, outputTopic, "toelastic");
+			new PeriodicProducer(boot, inputTopic, 4000, 15,
+					(topic, j) -> new ProducerRecord<String, String>(topic, String.valueOf(j), String.valueOf(j))).init();
+	
+			for (int i = 0; i < 1; i++) {
+				eps.get(0).killHard();
+				eps.get(0).start();
+				Thread.sleep(2000);
+	
+				eps.get(1).killHard();
+				eps.get(1).start();
+				Thread.sleep(2000);
+	
+				eps.get(3).killHard();
+				eps.get(3).start();
+				Thread.sleep(2000);
+	
+				eps.get(1).killHard();
+				eps.get(1).start();
+				Thread.sleep(2000);
+			}
+	
+			Thread.sleep(80000);
+	
+			for (int i = 0; i < eps.size(); i++) {
+				eps.get(i).kill();
+			}
+			new RecordVerifier(0, 4000, inj.kafkaConfig.repository);
+	
+			l.shutdown();
+			z.shutdown();
+	
+			toElastic.close();
+	
+			deleteDirectory(new File("/tmp/kafka-logs-singlenode"));
+			deleteDirectory(new File("/tmp/zookeeper-singlenode"));
+			System.out.println("Hit the bottom");
+			System.exit(0);
 		}
-
-		ToElasticConsuer toElastic = new ToElasticConsuer(boot, outputTopic, "toelastic");
-		new PeriodicProducer(boot, inputTopic, 4000, 15, 
-				(topic, j) -> new ProducerRecord<String,String>(topic, String.valueOf(j), String.valueOf(j))).init();
-		
-		for (int i=0 ; i < 10; i ++) {
-			eps.get(0).killHard();
-			eps.get(0).start();
-			Thread.sleep(2000);
-			
-			eps.get(1).killHard();
-			eps.get(1).start();
-			Thread.sleep(2000);
-			
-			eps.get(3).killHard();
-			eps.get(3).start();
-			Thread.sleep(2000);
-			
-			
-			eps.get(1).killHard();
-			eps.get(1).start();
-			Thread.sleep(2000);
-		}
-		
-		Thread.sleep(50000);
-
-		
-
-		for (int i = 0; i< eps.size(); i++) {
-			eps.get(i).kill();
-		}
-		new RecordVerifier(0, 4000, inj.kafkaConfig.repository);
-		
-		
-		l.shutdown();
-		z.shutdown();
-		
-		toElastic.close();
-
-		deleteDirectory(new File("/tmp/kafka-logs-singlenode"));
-		deleteDirectory(new File("/tmp/zookeeper-singlenode"));
-
 	}
 
 	static void deleteDirectory(File file) throws IOException {
 		if (!file.exists()) {
-			return ;
+			return;
 		}
 		if (file.isDirectory()) {
 			File[] entries = file.listFiles();

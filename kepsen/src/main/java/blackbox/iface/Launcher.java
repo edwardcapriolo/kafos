@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import blackbox.kafka.KafkaLauncher;
 
-public class Launcher<T extends ForkedProcess> {
+public class Launcher<T extends ForkedProcess> implements AutoCloseable {
 
 	protected ConcurrentMap<Integer, T> processes = new ConcurrentHashMap<>();
 
@@ -41,10 +41,29 @@ public class Launcher<T extends ForkedProcess> {
 		}
 	}
 	
+	@Override
+	public void close() {
+		for (Entry<Integer, T> entry : processes.entrySet()) {
+			entry.getValue().kill();
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			if (entry.getValue().isRunning()) {
+				entry.getValue().killHard();
+			}
+		}
+		
+	}
+	
 	public static void main(String [] args) throws InterruptedException {
 		KafkaLauncher l = new KafkaLauncher(1, "/home/edward/Downloads/kafka_2.11-2.2.1", 
 				"/home/edward/Documents/kafos/kepsen/singlenode/kafkaserver.properties.", null);
 		Thread.sleep(20000);
 		l.shutdown();
 	}
+
+
 }

@@ -1,103 +1,33 @@
 package pure8.multipartitionrpw;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
-/*
-interface MessageProcessorCallback<K,V> {
-	void onCompletion(RecordMetadata m, Exception e, ConsumerRecord<K,V> originalRecord, ProducerRecord<K,V> problemOutputRecord);
-}
-
-class MessageProcessorResponse<K,V> {
-	public MessageProcessorResponse(ConsumerRecord<K,V> originalRecord, 
-			List<ProducerRecord<K,V>> output, MessageProcessorCallback<K,V> callback) {
-
-		
-	}
-}
-*/
-interface MessageProcessor<K,V> {
-	List<ProducerRecord<K,V>> process(ConsumerRecord<K,V> record);
-}
-
-interface ProducerCreator<K,V> {
-	KafkaProducer<K,V> createKafkaProducer(String boot, String transId);
-}
-
-interface ConsumerCreator<K,V> {
-	KafkaConsumer<K,V> createKafkaConsumer(String boot, String group);
-}
-
-class TrackingProducer <K,V>{
-	private final AtomicBoolean used = new AtomicBoolean(false);
-	private final TopicPartition partitionToTrack;
-	private final KafkaProducer<K,V> kafkaProducer;
-	
-	public TrackingProducer(KafkaProducer<K,V> kafkaProducer, TopicPartition partitionToTrack) {
-		this.partitionToTrack = partitionToTrack;
-		this.kafkaProducer = kafkaProducer;
-		kafkaProducer.initTransactions();
-	}
-	
-	public List<Future<RecordMetadata>> send(List<ProducerRecord<K,V>> messages){
-		if (!used.get()) {
-			kafkaProducer.beginTransaction();
-		}
-		
-		used.set(true);
-		List<Future<RecordMetadata>> results = new ArrayList<>(messages.size());
-		for (ProducerRecord<K, V> message : messages) {
-			results.add(kafkaProducer.send(message));
-		}
-		return results;
-	}
-	
-	public void commitAndClear(ConsumerRecords<K,V> records,String groupId) {
-		if (!used.get()) {
-			return;
-		}
-		try {
-			Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = new HashMap<>();
-			for (TopicPartition partition : records.partitions()) {
-				if (partition.partition() == partitionToTrack.partition()) {
-					List<ConsumerRecord<K,V>> partitionedRecords= records.records(partition);
-					long offset = partitionedRecords.get(partitionedRecords.size() - 1).offset();
-					offsetsToCommit.put(partition, new OffsetAndMetadata(offset + 1));
-				}
-			}
-			kafkaProducer.sendOffsetsToTransaction(offsetsToCommit, groupId);
-			kafkaProducer.commitTransaction();
-		} catch (KafkaException e) {
-			kafkaProducer.abortTransaction();
-		} finally {
-			used.set(false);
-		}
-	}
-}
+import pure8.ConsumerCreator;
+import pure8.ProducerCreator;
 
 public class MultiPartitionRPW<K,V> implements  Runnable {
 
@@ -127,7 +57,7 @@ public class MultiPartitionRPW<K,V> implements  Runnable {
 	public void runOnce() {
 		ConsumerRecords<K,V> records = null;
 		try { 
-			records = consumer.poll(2000);
+			records = consumer.poll(5000);
 		} catch (KafkaException e){
 			return;
 		}
@@ -139,35 +69,67 @@ public class MultiPartitionRPW<K,V> implements  Runnable {
 			producer.send(results);
 
 		}
+		
+		boolean allPassed = true;
 		for (Entry<Integer, TrackingProducer<K, V>> entry: producers.entrySet()) {
-			entry.getValue().commitAndClear(records, groupId);	
+			try {
+				entry.getValue().commitAndClear(records, groupId);	
+			} catch (KafkaException e) {
+				allPassed = false;
+			}
+		}
+		if(!allPassed) {
+			Iterator<Entry<Integer, TrackingProducer<K, V>>> it = producers.entrySet().iterator();
+			while (it.hasNext()) {
+				Entry<Integer, TrackingProducer<K, V>> entry = it.next();
+				entry.getValue().close();
+				it.remove();
+			}
+			consumer.close();
+			internalInit();
 		}
 	
 	}
 	
 	public void init() {
+		internalInit();
+		Thread t = new Thread(this);
+		t.start();
+	}
+	
+	void internalInit() {
 		consumer = consumerCreator.createKafkaConsumer(bootstrap, groupId);
 		consumer.subscribe(Arrays.asList(inputTopic), new ConsumerRebalanceListener() {
 
 			@Override
 			public void onPartitionsAssigned(Collection<TopicPartition> topics) {
-				for (TopicPartition topic: topics) {
-					if(!producers.containsKey(topic.partition())) {
-						String fenceId = inputTopic + "-" + topic.partition();
-						producers.put (topic.partition(), new TrackingProducer<K,V>(producerCreator.createKafkaProducer(bootstrap, fenceId),topic));
+				for (TopicPartition topic : topics) {
+					if (!producers.containsKey(topic.partition())) {
+						String fenceId = inputTopic + "-" + topic.partition() + "-" + groupId;
+						producers.put(topic.partition(), new TrackingProducer<K, V>(
+								producerCreator.createKafkaProducer(bootstrap, fenceId), topic));
 					}
 				}
-				
+
 			}
 
 			@Override
-			public void onPartitionsRevoked(Collection<TopicPartition> arg0) {
-				
-			}}  );
-		Thread t = new Thread(this);
-		t.start();
+			public void onPartitionsRevoked(Collection<TopicPartition> completeTopicList) {
+				Set<Integer> partitions = completeTopicList.stream().map((x) -> x.partition())
+						.collect(Collectors.toSet());
+				Iterator<Entry<Integer, TrackingProducer<K, V>>> it = producers.entrySet().iterator();
+				while (it.hasNext()) {
+					Entry<Integer, TrackingProducer<K, V>> next = it.next();
+					if (!partitions.contains(next.getKey())) {
+						next.getValue().close();
+						it.remove();
+					}
+				}
+
+			}
+		});
 	}
-	
+
 	public void run() {
 		while (goOn.get()) {
 			runOnce();

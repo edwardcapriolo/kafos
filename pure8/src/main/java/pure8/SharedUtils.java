@@ -1,4 +1,4 @@
-package pure8.multipartitionrpw;
+package pure8;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,7 +31,7 @@ public class SharedUtils {
 			return new KafkaProducer<String,String>(properties);
 		}
 	};
-	
+	 
 	public static  ConsumerCreator<String,String> con = new ConsumerCreator<String,String>(){
 		public KafkaConsumer<String,String> createKafkaConsumer(String boot, String group){
 			Map<String,Object> properties = new HashMap<>();
