@@ -30,8 +30,17 @@ public class PeriodicProducer implements Runnable{
 	
 	public void run() {
 		KafkaProducer<String, String> producer = RPW.createKafkaProducer(boot);
+		
 		for (int i = 0; i < numberOfMessages; i++) {
-			producer.send( maker.make(topic, i));
+			while(true) {
+				try {
+					producer.send( maker.make(topic, i));
+					break;
+				} catch (RuntimeException ex) {
+					System.err.println(ex);
+				}
+			} 
+				
 			try {
 				Thread.sleep(delayInMillis);
 			} catch (InterruptedException e) {
